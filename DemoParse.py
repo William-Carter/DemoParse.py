@@ -1,5 +1,7 @@
 import bitstring
 import conversions
+import levelSplits
+import neatTables
 
 class Message:
     def __init__(self, type: str, offset: int, stream: bitstring.BitStream, bits_overheadSize: int):
@@ -20,7 +22,46 @@ class PacketMessage(Message):
         self.bits_size = self.bits_overheadSize+self.bits_dataSize
 
     def parse(self):
-        self.bits_dataSize = self.stream[self.offset+89*8:self.offset+93*8].intle*8
+        localOffset = self.offset+5*8
+        self.flags = self.stream[localOffset:localOffset+4*8]
+        localOffset += 4*8
+        self.viewOrigin = []
+        for i in range(3):
+            self.viewOrigin.append(self.stream[localOffset:localOffset+4*8].floatle)
+            localOffset += 4*8
+
+        self.viewAngles = []
+        for i in range(3):
+            self.viewAngles.append(self.stream[localOffset:localOffset+4*8].floatle)
+            localOffset += 4*8
+
+        self.localViewAngles = []
+        for i in range(3):
+            self.localViewAngles.append(self.stream[localOffset:localOffset+4*8].floatle)
+            localOffset += 4*8
+
+
+        self.viewOrigin2 = []
+        for i in range(3):
+            self.viewOrigin2.append(self.stream[localOffset:localOffset+4*8].floatle)
+            localOffset += 4*8
+
+        self.viewAngles2 = []
+        for i in range(3):
+            self.viewAngles2.append(self.stream[localOffset:localOffset+4*8].floatle)
+            localOffset += 4*8
+
+        self.localViewAngles2 = []
+        for i in range(3):
+            self.localViewAngles2.append(self.stream[localOffset:localOffset+4*8].floatle)
+            localOffset += 4*8
+
+        self.inSequence = self.stream[localOffset:localOffset+4*8].intle
+        localOffset += 4*8
+        self.outSequence = self.stream[localOffset:localOffset+4*8].intle
+        localOffset += 4*8
+
+        self.bits_dataSize = self.stream[localOffset:localOffset+4*8].intle*8
         
 class ConsoleCommandMessage(Message):
     def __init__(self, offset: int, stream: bitstring.BitStream):
@@ -69,22 +110,28 @@ class StringTablesMessage(Message):
         self.bits_dataSize = self.stream[self.offset+5*8:self.offset+9*8].intle*8
 
 class DemoParse:
-    def __init__(self, filePath):
+    def __init__(self, filePath, offset=0):
         with open(filePath, 'rb') as f:
             stream = bitstring.BitStream(bytes=f.read())
         
         # Get demo header
-        headerFieldValues = {}
+        self.headerFieldValues = {}
 
         for field in conversions.headerFields.keys():
-            headerFieldValues[field] = self.pullField(conversions.headerFields[field], stream)
+            self.headerFieldValues[field] = self.pullField(conversions.headerFields[field], stream)
 
         fileSize = len(stream)
         currentOffset = 1072*8 # The end of the header/start of the data (in bits)
-        # Number of iterations is not
-        self.demoLength = 0
-        endReached = False
+        self.demoLength = int(round(offset/0.015, 0))
+        
+        self.autoStarted = None
+        self.autoEnded = None
+        
+        splitBounds = levelSplits.splits[self.headerFieldValues["mapName"]].copy()
+        self.splits = []
+        lastTickAngle = None
         while True:
+            
             # End loop if we've reached the end of the file
             if currentOffset >= fileSize:
                 break
@@ -95,17 +142,87 @@ class DemoParse:
             else:
                 if parsedMessage.type == "ConsoleCmd":
                     if parsedMessage.data.decode("utf-8").rstrip('\x00') == "startneurotoxins 99999":
-                        endReached = True
-                        self.demoLength += 1 # idk why adding one is necessary but it is
+                        self.autoEnded = self.demoLength + 1# idk why adding one is necessary but it is
 
                 if parsedMessage.type == "UserCmd":
-                    if not endReached:
-                        self.demoLength += 1
+                    
+                    self.demoLength += 1
+
+
+                if parsedMessage.type == "Packet":
+                    
+                    for split in splitBounds:
+                        if levelSplits.checkInside(parsedMessage.viewOrigin, split["bounds"]):
+                            
+                            effectiveDemoLength = self.demoLength
+                            if self.autoStarted:
+                                effectiveDemoLength -= self.autoStarted
+                            
+                            self.splits.append((split["name"], effectiveDemoLength))
+                            splitBounds.remove(split)
+                    
+                    if self.autoStarted == None:
+                        if not lastTickAngle == None:
+                            if parsedMessage.viewAngles != lastTickAngle and lastTickAngle != [0.0, 0.0, 0.0]:
+                                # Technically this could cause issues but i'm sure it's fiiiiiiine
+                                if round(parsedMessage.viewAngles[1], 6)  == -170.002441:
+                                    self.autoStarted = self.demoLength+1
+                                    
+                                
+                    
+
+                    lastTickAngle = parsedMessage.viewAngles
+
+                        
                 currentOffset += parsedMessage.bits_size
 
         self.demoLength += 1 # 0th tick xD
+        effectiveDemoLength = self.demoLength
+        if self.autoStarted:
+            effectiveDemoLength -= self.autoStarted
+        self.splits.append(("Done", effectiveDemoLength))
         
 
+    def getDemoInfo(self):
+        printInfo = {}
+        printInfo["Player"] =  self.headerFieldValues["clientName"]
+        if self.headerFieldValues["mapName"] in conversions.chamberNames.keys():
+            printInfo["Level"] = conversions.chamberNames[self.headerFieldValues["mapName"]]
+        else:
+            printInfo["Map"] = self.headerFieldValues["mapName"]
+        for field in printInfo:
+            print(field+(20-len(field))*" "+":", printInfo[field])
+        print()
+        print("Measured Time"+7*" "+":", round(self.demoLength*0.015, 3))
+        print("Measured Ticks"+6*" "+":", self.demoLength)
+        adjustedTicks = self.demoLength
+        if self.autoStarted:
+            adjustedTicks -= self.autoStarted
+        if self.autoEnded:
+            adjustedTicks -= (self.demoLength-self.autoEnded)
+
+        if adjustedTicks != self.demoLength:
+            print("Adjusted Time"+7*" "+":", round(adjustedTicks*0.015, 3))
+            print("Adjusted Ticks"+6*" "+":", adjustedTicks)
+
+
+
+    def showSplits(self):
+        tableData = [["Split name", "Segment time", "Split time"]]
+        previousSplit = 0
+        for split in self.splits:
+            splitTicks = split[1]
+            segmentTicks = split[1]-previousSplit
+            previousSplit = splitTicks
+            splitTime = round(splitTicks*0.015, 3)
+            segmentTime = round(segmentTicks*0.015, 3)
+            tableData.append([split[0], str(segmentTime), str(splitTime)])
+
+        output = neatTables.generateTable(tableData)
+        return output
+
+        
+            
 
 
     def pullField(self, fieldDict: dict, stream: bitstring.BitStream) -> str | int | float:
@@ -165,5 +282,7 @@ class DemoParse:
                 return StringTablesMessage(offset, stream)
 
 
+if __name__ == "__main__":
+    demo = DemoParse("your/demo/here.dem")
+    print(demo.showSplits())
 
-print(DemoParse("08-1163.dem").demoLength)

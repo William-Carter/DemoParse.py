@@ -104,3 +104,29 @@ messageTables = {
     8: "StringTables"
 }
 
+chamberNames = {
+    "testchmb_a_00": "00/01",
+    "testchmb_a_01": "02/03",
+    "testchmb_a_02": "04/05", 
+    "testchmb_a_03": "06/07",
+    "testchmb_a_04": "08",
+    "testchmb_a_05": "09",
+    "testchmb_a_06": "10",
+    "testchmb_a_07": "11/12",
+    "testchmb_a_08": "13",
+    "testchmb_a_08_advanced": "13 Advanced",
+    "testchmb_a_09": "14",
+    "testchmb_a_09_advanced": "14 Advanced",
+    "testchmb_a_10": "15",
+    "testchmb_a_10_advanced": "15 Advanced",
+    "testchmb_a_11": "16",
+    "testchmb_a_11_advanced": "16 Advanced",
+    "testchmb_a_13": "17",
+    "testchmb_a_13_advanced": "17 Advanced",
+    "testchmb_a_14": "18",
+    "testchmb_a_14_advanced": "18 Advanced",
+    "testchmb_a_15": "19",
+    "escape_00": "Escape 00",
+    "escape_01": "Escape 01",
+    "escape_02": "Escape 02"
+}
